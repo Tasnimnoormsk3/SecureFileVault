@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+venv/
+env/
+*.log
+
+vault/
+encrypted_files/
+test_files/
