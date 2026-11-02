@@ -11,3 +11,6 @@ vault/
 encrypted_files/
 test_files/
 
+*_test.txt
+*.vault
+*_decrypted.*

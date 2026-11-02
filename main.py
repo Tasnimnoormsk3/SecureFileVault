@@ -14,6 +14,7 @@ from crypto import (
     decrypt_file_aes
 )
 
+
 # --------------------------------------------------
 # APP APPEARANCE
 # --------------------------------------------------
@@ -41,7 +42,7 @@ vault_key = None
 
 
 # --------------------------------------------------
-# FUNCTION TO SELECT A FILE
+# SELECT FILE
 # --------------------------------------------------
 
 def select_file():
@@ -52,7 +53,6 @@ def select_file():
     if file_path:
         selected_file = file_path
 
-        # Show only the filename instead of the full path
         file_label.configure(
             text=f"Selected File: {os.path.basename(file_path)}"
         )
@@ -63,7 +63,7 @@ def select_file():
 
 
 # --------------------------------------------------
-# FUNCTION TO REMOVE SELECTED FILE
+# REMOVE SELECTED FILE
 # --------------------------------------------------
 
 def remove_file():
@@ -89,7 +89,6 @@ def handle_unlock():
 
     password = password_entry.get()
 
-    # Check if the field is empty
     if not password:
         status_label.configure(
             text="Status: Please enter a master password"
@@ -98,10 +97,7 @@ def handle_unlock():
 
     try:
 
-        # --------------------------------------------------
-        # FIRST TIME THE VAULT IS USED
-        # --------------------------------------------------
-
+        # FIRST TIME USING THE VAULT
         if not is_vault_initialized():
 
             vault_key = create_vault(password)
@@ -110,15 +106,11 @@ def handle_unlock():
                 text="Status: Master password created. Vault unlocked."
             )
 
-        # --------------------------------------------------
-        # VAULT ALREADY EXISTS
-        # --------------------------------------------------
-
+        # EXISTING VAULT
         else:
 
             vault_key = unlock_vault(password)
 
-            # Wrong password
             if vault_key is None:
 
                 status_label.configure(
@@ -128,20 +120,18 @@ def handle_unlock():
                 password_entry.delete(0, "end")
                 return
 
-            # Correct password
             status_label.configure(
                 text="Status: Vault unlocked successfully"
             )
 
-        # Clear the password from the visible field
+        # Clear password field after successful use
         password_entry.delete(0, "end")
 
-        # Enable protected functions
+        # Enable security functions
         encrypt_button.configure(state="normal")
         decrypt_button.configure(state="normal")
         verify_button.configure(state="normal")
 
-        # Prevent the user from repeatedly unlocking
         unlock_button.configure(
             text="Vault Unlocked",
             state="disabled"
@@ -149,7 +139,6 @@ def handle_unlock():
 
     except ValueError as error:
 
-        # Used when password does not satisfy requirements
         status_label.configure(
             text=f"Status: {error}"
         )
@@ -160,13 +149,11 @@ def handle_unlock():
             text="Status: Unable to unlock the vault"
         )
 
-        # Useful while developing/debugging
         print("Vault error:", error)
 
 
 # --------------------------------------------------
-# PLACEHOLDER ENCRYPT FUNCTION
-# AES-256 will be added next
+# AES-256 ENCRYPTION
 # --------------------------------------------------
 
 def encrypt_file():
@@ -184,7 +171,15 @@ def encrypt_file():
         )
         return
 
+    # Prevent accidentally encrypting an already encrypted file
+    if selected_file.endswith(".vault"):
+        status_label.configure(
+            text="Status: Selected file is already encrypted"
+        )
+        return
+
     try:
+
         encrypted_path = encrypt_file_aes(
             selected_file,
             vault_key
@@ -198,17 +193,27 @@ def encrypt_file():
             text=f"Status: File encrypted successfully: {encrypted_name}"
         )
 
+    except FileNotFoundError:
+
+        status_label.configure(
+            text="Status: Selected file could not be found"
+        )
+
     except Exception as error:
+
         status_label.configure(
             text=f"Status: Encryption failed: {error}"
         )
 
+        print("Encryption error:", error)
+
 
 # --------------------------------------------------
-# PLACEHOLDER DECRYPT FUNCTION
+# AES-256 DECRYPTION
 # --------------------------------------------------
 
 def decrypt_file():
+    global selected_file
 
     if vault_key is None:
         status_label.configure(
@@ -222,14 +227,52 @@ def decrypt_file():
         )
         return
 
-    status_label.configure(
-        text="Status: File decryption will be implemented next"
-    )
+    # Only allow Secure File Vault encrypted files
+    if not selected_file.endswith(".vault"):
+        status_label.configure(
+            text="Status: Please select a valid .vault encrypted file"
+        )
+        return
+
+    try:
+
+        decrypted_path = decrypt_file_aes(
+            selected_file,
+            vault_key
+        )
+
+        decrypted_name = os.path.basename(
+            decrypted_path
+        )
+
+        status_label.configure(
+            text=f"Status: File decrypted successfully: {decrypted_name}"
+        )
+
+    except FileNotFoundError:
+
+        status_label.configure(
+            text="Status: Encrypted file could not be found"
+        )
+
+    except ValueError as error:
+
+        status_label.configure(
+            text=f"Status: Decryption failed: {error}"
+        )
+
+    except Exception as error:
+
+        status_label.configure(
+            text="Status: Decryption failed"
+        )
+
+        print("Decryption error:", error)
 
 
 # --------------------------------------------------
-# PLACEHOLDER INTEGRITY FUNCTION
-# SHA-256 will be added later
+# SHA-256 INTEGRITY
+# Will be implemented in the next milestone
 # --------------------------------------------------
 
 def verify_integrity():
@@ -347,7 +390,6 @@ add_button.pack(
 
 # --------------------------------------------------
 # ENCRYPT BUTTON
-# Disabled until master password is verified
 # --------------------------------------------------
 
 encrypt_button = ctk.CTkButton(
