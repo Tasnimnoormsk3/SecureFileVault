@@ -6,6 +6,8 @@ venv/
 env/
 *.log
 
+vault_config.json
 vault/
 encrypted_files/
 test_files/
+
