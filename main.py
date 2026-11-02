@@ -9,6 +9,10 @@ from password_manager import (
     unlock_vault
 )
 
+from crypto import (
+    encrypt_file_aes,
+    decrypt_file_aes
+)
 
 # --------------------------------------------------
 # APP APPEARANCE
@@ -166,6 +170,7 @@ def handle_unlock():
 # --------------------------------------------------
 
 def encrypt_file():
+    global selected_file
 
     if vault_key is None:
         status_label.configure(
@@ -179,9 +184,24 @@ def encrypt_file():
         )
         return
 
-    status_label.configure(
-        text="Status: AES-256 encryption will be implemented next"
-    )
+    try:
+        encrypted_path = encrypt_file_aes(
+            selected_file,
+            vault_key
+        )
+
+        encrypted_name = os.path.basename(
+            encrypted_path
+        )
+
+        status_label.configure(
+            text=f"Status: File encrypted successfully: {encrypted_name}"
+        )
+
+    except Exception as error:
+        status_label.configure(
+            text=f"Status: Encryption failed: {error}"
+        )
 
 
 # --------------------------------------------------
