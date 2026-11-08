@@ -1,4 +1,5 @@
 
+
 import os
 import customtkinter as ctk
 from tkinter import filedialog
@@ -12,6 +13,11 @@ from password_manager import (
 from crypto import (
     encrypt_file_aes,
     decrypt_file_aes
+)
+
+from integrity import (
+    create_integrity_record,
+    verify_integrity_record
 )
 
 
@@ -132,6 +138,7 @@ def handle_unlock():
         decrypt_button.configure(state="normal")
         verify_button.configure(state="normal")
 
+        # Prevent repeated unlocking
         unlock_button.configure(
             text="Vault Unlocked",
             state="disabled"
@@ -153,7 +160,7 @@ def handle_unlock():
 
 
 # --------------------------------------------------
-# AES-256 ENCRYPTION
+# AES-256 ENCRYPTION + SHA-256 RECORD
 # --------------------------------------------------
 
 def encrypt_file():
@@ -171,7 +178,7 @@ def encrypt_file():
         )
         return
 
-    # Prevent accidentally encrypting an already encrypted file
+    # Prevent encrypting a file that is already encrypted
     if selected_file.endswith(".vault"):
         status_label.configure(
             text="Status: Selected file is already encrypted"
@@ -180,9 +187,15 @@ def encrypt_file():
 
     try:
 
+        # Encrypt using AES-256-GCM
         encrypted_path = encrypt_file_aes(
             selected_file,
             vault_key
+        )
+
+        # Create SHA-256 integrity record
+        integrity_path, file_hash = create_integrity_record(
+            encrypted_path
         )
 
         encrypted_name = os.path.basename(
@@ -190,7 +203,10 @@ def encrypt_file():
         )
 
         status_label.configure(
-            text=f"Status: File encrypted successfully: {encrypted_name}"
+            text=(
+                "Status: File encrypted successfully and "
+                f"SHA-256 integrity record created: {encrypted_name}"
+            )
         )
 
     except FileNotFoundError:
@@ -227,7 +243,7 @@ def decrypt_file():
         )
         return
 
-    # Only allow Secure File Vault encrypted files
+    # Only allow Secure File Vault files
     if not selected_file.endswith(".vault"):
         status_label.configure(
             text="Status: Please select a valid .vault encrypted file"
@@ -271,27 +287,77 @@ def decrypt_file():
 
 
 # --------------------------------------------------
-# SHA-256 INTEGRITY
-# Will be implemented in the next milestone
+# SHA-256 INTEGRITY VERIFICATION
 # --------------------------------------------------
 
 def verify_integrity():
 
     if vault_key is None:
+
         status_label.configure(
             text="Status: Unlock the vault first"
         )
+
         return
 
     if selected_file is None:
+
         status_label.configure(
             text="Status: Please select a file first"
         )
+
         return
 
-    status_label.configure(
-        text="Status: SHA-256 integrity verification will be implemented next"
-    )
+    try:
+
+        verified, stored_hash, current_hash = (
+            verify_integrity_record(
+                selected_file
+            )
+        )
+
+        # File has not been changed
+        if verified:
+
+            status_label.configure(
+                text=(
+                    "Status: Integrity verified. "
+                    "File has not been modified."
+                )
+            )
+
+        # File contents differ from stored SHA-256 hash
+        else:
+
+            status_label.configure(
+                text=(
+                    "Status: INTEGRITY CHECK FAILED - "
+                    "File may have been modified."
+                )
+            )
+
+    except FileNotFoundError as error:
+
+        status_label.configure(
+            text=f"Status: {error}"
+        )
+
+    except ValueError as error:
+
+        status_label.configure(
+            text=f"Status: Integrity error: {error}"
+        )
+
+    except Exception as error:
+
+        status_label.configure(
+            text="Status: Unable to verify file integrity"
+        )
+
+        print(
+            "Integrity verification error:",
+            error
+        )
 
 
 # --------------------------------------------------
