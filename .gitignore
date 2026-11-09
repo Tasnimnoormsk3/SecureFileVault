@@ -1,18 +1,26 @@
+
 __pycache__/
 *.pyc
 .DS_Store
+
 .venv/
 venv/
 env/
+
 *.log
 
+# Local vault configuration
 vault_config.json
+
+# Local storage / test folders
 vault/
 encrypted_files/
 test_files/
+vault_files/
+retrieved_files/
 
+# Test and generated files
 *_test.txt
 *.vault
-*_decrypted.*
-
 *.sha256
+*_decrypted.*

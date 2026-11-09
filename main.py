@@ -1,5 +1,3 @@
-
-
 import os
 import customtkinter as ctk
 from tkinter import filedialog
@@ -20,6 +18,13 @@ from integrity import (
     verify_integrity_record
 )
 
+from file_manager import (
+    ensure_storage_directories,
+    store_encrypted_file,
+    store_retrieved_file,
+    VAULT_DIR
+)
+
 
 # --------------------------------------------------
 # APP APPEARANCE
@@ -35,7 +40,7 @@ ctk.set_default_color_theme("blue")
 
 app = ctk.CTk()
 app.title("Secure File Vault")
-app.geometry("700x650")
+app.geometry("700x720")
 app.resizable(False, False)
 
 
@@ -47,14 +52,20 @@ selected_file = None
 vault_key = None
 
 
+# Create storage folders automatically
+ensure_storage_directories()
+
+
 # --------------------------------------------------
-# SELECT FILE
+# SELECT NORMAL FILE
 # --------------------------------------------------
 
 def select_file():
     global selected_file
 
-    file_path = filedialog.askopenfilename()
+    file_path = filedialog.askopenfilename(
+        title="Select a File"
+    )
 
     if file_path:
         selected_file = file_path
@@ -65,6 +76,33 @@ def select_file():
 
         status_label.configure(
             text="Status: File selected successfully"
+        )
+
+
+# --------------------------------------------------
+# SELECT FILE FROM SECURE VAULT
+# --------------------------------------------------
+
+def select_vault_file():
+    global selected_file
+
+    file_path = filedialog.askopenfilename(
+        initialdir=VAULT_DIR,
+        title="Select a Protected Vault File",
+        filetypes=[
+            ("Secure File Vault Files", "*.vault")
+        ]
+    )
+
+    if file_path:
+        selected_file = file_path
+
+        file_label.configure(
+            text=f"Selected Vault File: {os.path.basename(file_path)}"
+        )
+
+        status_label.configure(
+            text="Status: Vault file selected successfully"
         )
 
 
@@ -82,7 +120,7 @@ def remove_file():
     )
 
     status_label.configure(
-        text="Status: File removed"
+        text="Status: File removed from selection"
     )
 
 
@@ -123,22 +161,40 @@ def handle_unlock():
                     text="Status: Incorrect master password"
                 )
 
-                password_entry.delete(0, "end")
+                password_entry.delete(
+                    0,
+                    "end"
+                )
+
                 return
 
             status_label.configure(
                 text="Status: Vault unlocked successfully"
             )
 
-        # Clear password field after successful use
-        password_entry.delete(0, "end")
+        # Clear password field
+        password_entry.delete(
+            0,
+            "end"
+        )
 
-        # Enable security functions
-        encrypt_button.configure(state="normal")
-        decrypt_button.configure(state="normal")
-        verify_button.configure(state="normal")
+        # Enable protected functions
+        encrypt_button.configure(
+            state="normal"
+        )
 
-        # Prevent repeated unlocking
+        decrypt_button.configure(
+            state="normal"
+        )
+
+        verify_button.configure(
+            state="normal"
+        )
+
+        vault_files_button.configure(
+            state="normal"
+        )
+
         unlock_button.configure(
             text="Vault Unlocked",
             state="disabled"
@@ -156,7 +212,10 @@ def handle_unlock():
             text="Status: Unable to unlock the vault"
         )
 
-        print("Vault error:", error)
+        print(
+            "Vault error:",
+            error
+        )
 
 
 # --------------------------------------------------
@@ -167,30 +226,41 @@ def encrypt_file():
     global selected_file
 
     if vault_key is None:
+
         status_label.configure(
             text="Status: Unlock the vault first"
         )
+
         return
 
     if selected_file is None:
+
         status_label.configure(
             text="Status: Please select a file first"
         )
+
         return
 
-    # Prevent encrypting a file that is already encrypted
+    # Prevent encrypting an already encrypted file
     if selected_file.endswith(".vault"):
+
         status_label.configure(
             text="Status: Selected file is already encrypted"
         )
+
         return
 
     try:
 
-        # Encrypt using AES-256-GCM
+        # AES-256-GCM encryption
         encrypted_path = encrypt_file_aes(
             selected_file,
             vault_key
+        )
+
+        # Move encrypted file into dedicated vault folder
+        encrypted_path = store_encrypted_file(
+            encrypted_path
         )
 
         # Create SHA-256 integrity record
@@ -204,8 +274,8 @@ def encrypt_file():
 
         status_label.configure(
             text=(
-                "Status: File encrypted successfully and "
-                f"SHA-256 integrity record created: {encrypted_name}"
+                "Status: File encrypted successfully and stored "
+                f"in vault: {encrypted_name}"
             )
         )
 
@@ -221,7 +291,10 @@ def encrypt_file():
             text=f"Status: Encryption failed: {error}"
         )
 
-        print("Encryption error:", error)
+        print(
+            "Encryption error:",
+            error
+        )
 
 
 # --------------------------------------------------
@@ -232,29 +305,40 @@ def decrypt_file():
     global selected_file
 
     if vault_key is None:
+
         status_label.configure(
             text="Status: Unlock the vault first"
         )
+
         return
 
     if selected_file is None:
+
         status_label.configure(
             text="Status: Please select an encrypted file first"
         )
+
         return
 
-    # Only allow Secure File Vault files
     if not selected_file.endswith(".vault"):
+
         status_label.configure(
             text="Status: Please select a valid .vault encrypted file"
         )
+
         return
 
     try:
 
+        # Decrypt file
         decrypted_path = decrypt_file_aes(
             selected_file,
             vault_key
+        )
+
+        # Move recovered file into retrieval folder
+        decrypted_path = store_retrieved_file(
+            decrypted_path
         )
 
         decrypted_name = os.path.basename(
@@ -262,7 +346,10 @@ def decrypt_file():
         )
 
         status_label.configure(
-            text=f"Status: File decrypted successfully: {decrypted_name}"
+            text=(
+                "Status: File decrypted successfully and "
+                f"saved to retrieved files: {decrypted_name}"
+            )
         )
 
     except FileNotFoundError:
@@ -283,7 +370,10 @@ def decrypt_file():
             text="Status: Decryption failed"
         )
 
-        print("Decryption error:", error)
+        print(
+            "Decryption error:",
+            error
+        )
 
 
 # --------------------------------------------------
@@ -316,7 +406,6 @@ def verify_integrity():
             )
         )
 
-        # File has not been changed
         if verified:
 
             status_label.configure(
@@ -326,7 +415,6 @@ def verify_integrity():
                 )
             )
 
-        # File contents differ from stored SHA-256 hash
         else:
 
             status_label.configure(
@@ -455,6 +543,23 @@ add_button.pack(
 
 
 # --------------------------------------------------
+# VIEW VAULT FILES BUTTON
+# --------------------------------------------------
+
+vault_files_button = ctk.CTkButton(
+    app,
+    text="View Vault Files",
+    width=200,
+    state="disabled",
+    command=select_vault_file
+)
+
+vault_files_button.pack(
+    pady=6
+)
+
+
+# --------------------------------------------------
 # ENCRYPT BUTTON
 # --------------------------------------------------
 
@@ -529,7 +634,7 @@ status_label = ctk.CTkLabel(
     app,
     text="Status: Ready",
     font=("Arial", 14),
-    wraplength=600
+    wraplength=620
 )
 
 status_label.pack(
