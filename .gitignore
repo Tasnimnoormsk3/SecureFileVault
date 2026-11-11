@@ -24,3 +24,7 @@ retrieved_files/
 *.vault
 *.sha256
 *_decrypted.*
+
+audit_logs/
+
+disposable.txt

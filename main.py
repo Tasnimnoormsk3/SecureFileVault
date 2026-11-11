@@ -30,6 +30,12 @@ from file_manager import (
     VAULT_DIR
 )
 
+from audit_logger import (
+    ensure_audit_log,
+    log_event,
+    get_audit_log_text
+)
+
 
 # --------------------------------------------------
 # APP APPEARANCE
@@ -44,9 +50,19 @@ ctk.set_default_color_theme("blue")
 # --------------------------------------------------
 
 app = ctk.CTk()
-app.title("Secure File Vault")
-app.geometry("700x780")
-app.resizable(False, False)
+
+app.title(
+    "Secure File Vault"
+)
+
+app.geometry(
+    "700x830"
+)
+
+app.resizable(
+    False,
+    False
+)
 
 
 # --------------------------------------------------
@@ -57,8 +73,9 @@ selected_file = None
 vault_key = None
 
 
-# Create storage folders automatically
+# Create required local folders
 ensure_storage_directories()
+ensure_audit_log()
 
 
 # --------------------------------------------------
@@ -66,6 +83,7 @@ ensure_storage_directories()
 # --------------------------------------------------
 
 def select_file():
+
     global selected_file
 
     file_path = filedialog.askopenfilename(
@@ -78,7 +96,7 @@ def select_file():
 
         file_label.configure(
             text=(
-                f"Selected File: "
+                "Selected File: "
                 f"{os.path.basename(file_path)}"
             )
         )
@@ -89,10 +107,11 @@ def select_file():
 
 
 # --------------------------------------------------
-# SELECT FILE FROM SECURE VAULT
+# SELECT VAULT FILE
 # --------------------------------------------------
 
 def select_vault_file():
+
     global selected_file
 
     if vault_key is None:
@@ -120,7 +139,7 @@ def select_vault_file():
 
         file_label.configure(
             text=(
-                f"Selected Vault File: "
+                "Selected Vault File: "
                 f"{os.path.basename(file_path)}"
             )
         )
@@ -135,6 +154,7 @@ def select_vault_file():
 # --------------------------------------------------
 
 def handle_unlock():
+
     global vault_key
 
     password = password_entry.get()
@@ -149,14 +169,22 @@ def handle_unlock():
 
     try:
 
-        # ------------------------------------------
-        # FIRST TIME USING THE VAULT
-        # ------------------------------------------
-
+        # First-time setup
         if not is_vault_initialized():
 
             vault_key = create_vault(
                 password
+            )
+
+            log_event(
+                "VAULT_INITIALIZED",
+                "SUCCESS",
+                details="Master password configured"
+            )
+
+            log_event(
+                "VAULT_UNLOCK",
+                "SUCCESS"
             )
 
             status_label.configure(
@@ -166,18 +194,20 @@ def handle_unlock():
                 )
             )
 
-        # ------------------------------------------
-        # EXISTING VAULT
-        # ------------------------------------------
-
+        # Existing vault
         else:
 
             vault_key = unlock_vault(
                 password
             )
 
-            # Incorrect password
             if vault_key is None:
+
+                log_event(
+                    "VAULT_UNLOCK",
+                    "FAILED",
+                    details="Incorrect password"
+                )
 
                 status_label.configure(
                     text="Status: Incorrect master password"
@@ -190,17 +220,20 @@ def handle_unlock():
 
                 return
 
+            log_event(
+                "VAULT_UNLOCK",
+                "SUCCESS"
+            )
+
             status_label.configure(
                 text="Status: Vault unlocked successfully"
             )
 
-        # Clear password from GUI
         password_entry.delete(
             0,
             "end"
         )
 
-        # Enable protected functionality
         encrypt_button.configure(
             state="normal"
         )
@@ -217,11 +250,14 @@ def handle_unlock():
             state="normal"
         )
 
+        activity_log_button.configure(
+            state="normal"
+        )
+
         lock_button.configure(
             state="normal"
         )
 
-        # Disable unlock button
         unlock_button.configure(
             text="Vault Unlocked",
             state="disabled"
@@ -229,11 +265,23 @@ def handle_unlock():
 
     except ValueError as error:
 
+        log_event(
+            "VAULT_UNLOCK",
+            "FAILED",
+            details=str(error)
+        )
+
         status_label.configure(
             text=f"Status: {error}"
         )
 
     except Exception as error:
+
+        log_event(
+            "VAULT_UNLOCK",
+            "ERROR",
+            details="Unexpected vault error"
+        )
 
         status_label.configure(
             text="Status: Unable to unlock the vault"
@@ -250,16 +298,18 @@ def handle_unlock():
 # --------------------------------------------------
 
 def lock_vault():
+
     global vault_key
     global selected_file
 
-    # Remove the key from application state
-    vault_key = None
+    log_event(
+        "VAULT_LOCK",
+        "SUCCESS"
+    )
 
-    # Remove selected file
+    vault_key = None
     selected_file = None
 
-    # Clear password field
     password_entry.delete(
         0,
         "end"
@@ -269,7 +319,6 @@ def lock_vault():
         text="No file selected"
     )
 
-    # Disable protected functions
     encrypt_button.configure(
         state="disabled"
     )
@@ -286,11 +335,14 @@ def lock_vault():
         state="disabled"
     )
 
+    activity_log_button.configure(
+        state="disabled"
+    )
+
     lock_button.configure(
         state="disabled"
     )
 
-    # Allow vault to be unlocked again
     unlock_button.configure(
         text="Create / Unlock Vault",
         state="normal"
@@ -302,12 +354,11 @@ def lock_vault():
 
 
 # --------------------------------------------------
-# AES-256-GCM ENCRYPTION
-# + SHA-256 INTEGRITY RECORD
-# + VAULT STORAGE
+# ENCRYPT FILE
 # --------------------------------------------------
 
 def encrypt_file():
+
     global selected_file
 
     if vault_key is None:
@@ -326,9 +377,9 @@ def encrypt_file():
 
         return
 
-    # Prevent already encrypted files from
-    # being encrypted again.
-    if selected_file.endswith(".vault"):
+    if selected_file.endswith(
+        ".vault"
+    ):
 
         status_label.configure(
             text="Status: Selected file is already encrypted"
@@ -346,31 +397,27 @@ def encrypt_file():
 
         return
 
-    try:
+    original_file = selected_file
 
-        # ------------------------------------------
-        # AES-256-GCM ENCRYPTION
-        # ------------------------------------------
+    try:
 
         encrypted_path = encrypt_file_aes(
             selected_file,
             vault_key
         )
 
-        # ------------------------------------------
-        # MOVE INTO DEDICATED VAULT
-        # ------------------------------------------
-
         encrypted_path = store_encrypted_file(
             encrypted_path
         )
 
-        # ------------------------------------------
-        # SHA-256 INTEGRITY BASELINE
-        # ------------------------------------------
-
         create_integrity_record(
             encrypted_path
+        )
+
+        log_event(
+            "FILE_ENCRYPT",
+            "SUCCESS",
+            file_path=original_file
         )
 
         encrypted_name = os.path.basename(
@@ -385,31 +432,26 @@ def encrypt_file():
             )
         )
 
-    except FileNotFoundError:
-
-        status_label.configure(
-            text="Status: Selected file could not be found"
-        )
-
     except Exception as error:
+
+        log_event(
+            "FILE_ENCRYPT",
+            "FAILED",
+            file_path=original_file,
+            details=str(error)
+        )
 
         status_label.configure(
             text=f"Status: Encryption failed: {error}"
         )
 
-        print(
-            "Encryption error:",
-            error
-        )
-
 
 # --------------------------------------------------
-# AES-256-GCM DECRYPTION
-# + AUTOMATIC SHA-256 CHECK
-# + RETRIEVED FILE STORAGE
+# DECRYPT FILE
 # --------------------------------------------------
 
 def decrypt_file():
+
     global selected_file
 
     if vault_key is None:
@@ -423,10 +465,7 @@ def decrypt_file():
     if selected_file is None:
 
         status_label.configure(
-            text=(
-                "Status: Please select an "
-                "encrypted file first"
-            )
+            text="Status: Please select an encrypted file first"
         )
 
         return
@@ -444,23 +483,11 @@ def decrypt_file():
 
         return
 
-    if not os.path.isfile(
-        selected_file
-    ):
-
-        status_label.configure(
-            text="Status: Encrypted file could not be found"
-        )
-
-        return
+    vault_file = selected_file
 
     try:
 
-        # ------------------------------------------
-        # AUTOMATIC INTEGRITY CHECK
-        # BEFORE DECRYPTION
-        # ------------------------------------------
-
+        # Automatic integrity verification
         try:
 
             verified, stored_hash, current_hash = (
@@ -470,6 +497,13 @@ def decrypt_file():
             )
 
         except FileNotFoundError as error:
+
+            log_event(
+                "FILE_DECRYPT",
+                "BLOCKED",
+                file_path=vault_file,
+                details="Integrity record missing"
+            )
 
             status_label.configure(
                 text=(
@@ -482,6 +516,20 @@ def decrypt_file():
 
         if not verified:
 
+            log_event(
+                "FILE_DECRYPT",
+                "BLOCKED",
+                file_path=vault_file,
+                details="Integrity verification failed"
+            )
+
+            log_event(
+                "INTEGRITY_CHECK",
+                "FAILED",
+                file_path=vault_file,
+                details="Possible file modification detected"
+            )
+
             status_label.configure(
                 text=(
                     "Status: Decryption blocked - "
@@ -492,21 +540,19 @@ def decrypt_file():
 
             return
 
-        # ------------------------------------------
-        # AES-256-GCM DECRYPTION
-        # ------------------------------------------
-
         decrypted_path = decrypt_file_aes(
             selected_file,
             vault_key
         )
 
-        # ------------------------------------------
-        # MOVE INTO RETRIEVED FILES FOLDER
-        # ------------------------------------------
-
         decrypted_path = store_retrieved_file(
             decrypted_path
+        )
+
+        log_event(
+            "FILE_DECRYPT",
+            "SUCCESS",
+            file_path=vault_file
         )
 
         decrypted_name = os.path.basename(
@@ -523,11 +569,24 @@ def decrypt_file():
 
     except ValueError as error:
 
+        log_event(
+            "FILE_DECRYPT",
+            "FAILED",
+            file_path=vault_file,
+            details=str(error)
+        )
+
         status_label.configure(
             text=f"Status: Decryption failed: {error}"
         )
 
     except Exception as error:
+
+        log_event(
+            "FILE_DECRYPT",
+            "ERROR",
+            file_path=vault_file
+        )
 
         status_label.configure(
             text="Status: Decryption failed"
@@ -540,7 +599,7 @@ def decrypt_file():
 
 
 # --------------------------------------------------
-# SHA-256 INTEGRITY VERIFICATION
+# VERIFY INTEGRITY
 # --------------------------------------------------
 
 def verify_integrity():
@@ -569,11 +628,13 @@ def verify_integrity():
             )
         )
 
-        # ------------------------------------------
-        # FILE HAS NOT CHANGED
-        # ------------------------------------------
-
         if verified:
+
+            log_event(
+                "INTEGRITY_CHECK",
+                "SUCCESS",
+                file_path=selected_file
+            )
 
             status_label.configure(
                 text=(
@@ -582,11 +643,14 @@ def verify_integrity():
                 )
             )
 
-        # ------------------------------------------
-        # FILE WAS MODIFIED
-        # ------------------------------------------
-
         else:
+
+            log_event(
+                "INTEGRITY_CHECK",
+                "FAILED",
+                file_path=selected_file,
+                details="Possible file modification detected"
+            )
 
             status_label.configure(
                 text=(
@@ -597,17 +661,24 @@ def verify_integrity():
 
     except FileNotFoundError as error:
 
+        log_event(
+            "INTEGRITY_CHECK",
+            "FAILED",
+            file_path=selected_file,
+            details="Integrity record missing"
+        )
+
         status_label.configure(
             text=f"Status: {error}"
         )
 
-    except ValueError as error:
-
-        status_label.configure(
-            text=f"Status: Integrity error: {error}"
-        )
-
     except Exception as error:
+
+        log_event(
+            "INTEGRITY_CHECK",
+            "ERROR",
+            file_path=selected_file
+        )
 
         status_label.configure(
             text="Status: Unable to verify file integrity"
@@ -620,13 +691,13 @@ def verify_integrity():
 
 
 # --------------------------------------------------
-# REMOVE FILE / REMOVE FROM SELECTION
+# REMOVE FILE
 # --------------------------------------------------
 
 def remove_file():
+
     global selected_file
 
-    # Nothing selected
     if selected_file is None:
 
         status_label.configure(
@@ -659,10 +730,6 @@ def remove_file():
 
         inside_vault = False
 
-    # ----------------------------------------------
-    # PROTECTED FILE INSIDE VAULT
-    # ----------------------------------------------
-
     if (
         inside_vault
         and selected_file.endswith(".vault")
@@ -691,8 +758,13 @@ def remove_file():
             )
         )
 
-        # User cancelled
         if not confirmed:
+
+            log_event(
+                "FILE_REMOVE",
+                "CANCELLED",
+                file_path=selected_file
+            )
 
             status_label.configure(
                 text="Status: File removal cancelled"
@@ -702,19 +774,17 @@ def remove_file():
 
         try:
 
-            # Integrity file associated with the
-            # selected vault file
             integrity_path = (
                 selected_file
                 + ".sha256"
             )
 
-            # Remove encrypted file
+            log_file_path = selected_file
+
             os.remove(
                 selected_file
             )
 
-            # Remove SHA-256 record
             if os.path.exists(
                 integrity_path
             ):
@@ -722,6 +792,12 @@ def remove_file():
                 os.remove(
                     integrity_path
                 )
+
+            log_event(
+                "FILE_REMOVE",
+                "SUCCESS",
+                file_path=log_file_path
+            )
 
             selected_file = None
 
@@ -738,19 +814,19 @@ def remove_file():
 
         except Exception as error:
 
+            log_event(
+                "FILE_REMOVE",
+                "FAILED",
+                file_path=selected_file,
+                details=str(error)
+            )
+
             status_label.configure(
                 text=(
                     "Status: Unable to remove file: "
                     f"{error}"
                 )
             )
-
-    # ----------------------------------------------
-    # NORMAL FILE
-    #
-    # Never delete the user's original file.
-    # Only clear it from the GUI selection.
-    # ----------------------------------------------
 
     else:
 
@@ -763,6 +839,67 @@ def remove_file():
         status_label.configure(
             text="Status: File removed from selection"
         )
+
+
+# --------------------------------------------------
+# VIEW SECURITY ACTIVITY LOG
+# --------------------------------------------------
+
+def show_activity_log():
+
+    if vault_key is None:
+
+        status_label.configure(
+            text="Status: Unlock the vault first"
+        )
+
+        return
+
+    log_window = ctk.CTkToplevel(
+        app
+    )
+
+    log_window.title(
+        "Security Activity Log"
+    )
+
+    log_window.geometry(
+        "850x500"
+    )
+
+    log_title = ctk.CTkLabel(
+        log_window,
+        text="SECURITY ACTIVITY LOG",
+        font=(
+            "Arial",
+            22,
+            "bold"
+        )
+    )
+
+    log_title.pack(
+        pady=20
+    )
+
+    log_textbox = ctk.CTkTextbox(
+        log_window,
+        width=800,
+        height=390
+    )
+
+    log_textbox.pack(
+        padx=20,
+        pady=10
+    )
+
+    log_textbox.insert(
+        "1.0",
+        get_audit_log_text()
+    )
+
+    log_textbox.configure(
+        state="disabled"
+    )
 
 
 # --------------------------------------------------
@@ -780,12 +917,12 @@ title = ctk.CTkLabel(
 )
 
 title.pack(
-    pady=(25, 15)
+    pady=(25, 12)
 )
 
 
 # --------------------------------------------------
-# MASTER PASSWORD LABEL
+# PASSWORD
 # --------------------------------------------------
 
 password_label = ctk.CTkLabel(
@@ -802,10 +939,6 @@ password_label.pack(
 )
 
 
-# --------------------------------------------------
-# MASTER PASSWORD INPUT
-# --------------------------------------------------
-
 password_entry = ctk.CTkEntry(
     app,
     width=350,
@@ -820,7 +953,7 @@ password_entry.pack(
 
 
 # --------------------------------------------------
-# CREATE / UNLOCK VAULT
+# UNLOCK
 # --------------------------------------------------
 
 unlock_button = ctk.CTkButton(
@@ -831,12 +964,12 @@ unlock_button = ctk.CTkButton(
 )
 
 unlock_button.pack(
-    pady=5
+    pady=4
 )
 
 
 # --------------------------------------------------
-# LOCK VAULT
+# LOCK
 # --------------------------------------------------
 
 lock_button = ctk.CTkButton(
@@ -848,12 +981,12 @@ lock_button = ctk.CTkButton(
 )
 
 lock_button.pack(
-    pady=5
+    pady=4
 )
 
 
 # --------------------------------------------------
-# SELECTED FILE LABEL
+# FILE LABEL
 # --------------------------------------------------
 
 file_label = ctk.CTkLabel(
@@ -863,7 +996,7 @@ file_label = ctk.CTkLabel(
 )
 
 file_label.pack(
-    pady=15
+    pady=12
 )
 
 
@@ -879,12 +1012,12 @@ add_button = ctk.CTkButton(
 )
 
 add_button.pack(
-    pady=5
+    pady=4
 )
 
 
 # --------------------------------------------------
-# VIEW VAULT FILES
+# VIEW VAULT
 # --------------------------------------------------
 
 vault_files_button = ctk.CTkButton(
@@ -896,7 +1029,7 @@ vault_files_button = ctk.CTkButton(
 )
 
 vault_files_button.pack(
-    pady=5
+    pady=4
 )
 
 
@@ -913,7 +1046,7 @@ encrypt_button = ctk.CTkButton(
 )
 
 encrypt_button.pack(
-    pady=5
+    pady=4
 )
 
 
@@ -930,12 +1063,12 @@ decrypt_button = ctk.CTkButton(
 )
 
 decrypt_button.pack(
-    pady=5
+    pady=4
 )
 
 
 # --------------------------------------------------
-# VERIFY INTEGRITY
+# VERIFY
 # --------------------------------------------------
 
 verify_button = ctk.CTkButton(
@@ -947,12 +1080,12 @@ verify_button = ctk.CTkButton(
 )
 
 verify_button.pack(
-    pady=5
+    pady=4
 )
 
 
 # --------------------------------------------------
-# REMOVE FILE
+# REMOVE
 # --------------------------------------------------
 
 remove_button = ctk.CTkButton(
@@ -963,7 +1096,24 @@ remove_button = ctk.CTkButton(
 )
 
 remove_button.pack(
-    pady=5
+    pady=4
+)
+
+
+# --------------------------------------------------
+# ACTIVITY LOG
+# --------------------------------------------------
+
+activity_log_button = ctk.CTkButton(
+    app,
+    text="View Activity Log",
+    width=200,
+    state="disabled",
+    command=show_activity_log
+)
+
+activity_log_button.pack(
+    pady=4
 )
 
 
@@ -982,12 +1132,12 @@ status_label = ctk.CTkLabel(
 )
 
 status_label.pack(
-    pady=20
+    pady=16
 )
 
 
 # --------------------------------------------------
-# START APPLICATION
+# START
 # --------------------------------------------------
 
 app.mainloop()
