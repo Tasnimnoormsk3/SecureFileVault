@@ -25,6 +25,8 @@ retrieved_files/
 *.sha256
 *_decrypted.*
 
+# Security audit logs
 audit_logs/
 
+# Temporary test file
 disposable.txt
